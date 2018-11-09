@@ -110,6 +110,47 @@ contract("BrokerageWallet", (accounts) => {
         });
       });
     });
+
+    context("the investor does not have a sufficient balance", async function() {
+      it("reverts and does not change offered balance", async function() {
+        const initialInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+        assert.equal(initialInvestorLedger[0].toNumber(), 0);
+        assert.equal(initialInvestorLedger[1].toNumber(), 0);
+
+        await truffleAssert.reverts(
+          this.brokerageWalletContract.offerTokens(this.erc20TokenAddress, 100, { from: this.investor }),
+          "Investor does not have sufficient balance of token"
+        );
+
+        const investorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+        assert.equal(initialInvestorLedger[1] - investorLedger[1], 0);
+      });
+    });
+
+    context("the investor is already offering too many tokens", async function() {
+      beforeEach(async function() {
+        this.depositAmount = 100;
+        this.offeredAmount = this.depositAmount;
+
+        await this.erc20Token.increaseAllowance(this.brokerageWalletContract.address, this.depositAmount, { from: this.investor });
+        await this.brokerageWalletContract.deposit(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
+        await this.brokerageWalletContract.offerTokens(this.erc20TokenAddress, this.offeredAmount, { from: this.investor });
+      });
+
+      it("reverts and does not change offered balance", async function() {
+        const initialInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+        assert.equal(initialInvestorLedger[0].toNumber(), this.depositAmount);
+        assert.equal(initialInvestorLedger[1].toNumber(), this.offeredAmount);
+
+        await truffleAssert.reverts(
+          this.brokerageWalletContract.offerTokens(this.erc20TokenAddress, 100, { from: this.investor }),
+          "Investor does not have sufficient balance of token"
+        );
+
+        const investorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+        assert.equal(initialInvestorLedger[1] - investorLedger[1], 0);
+      });
+    });
   });
 
   describe("cancelOffer(address _token, uint256 _amount)", () => {
