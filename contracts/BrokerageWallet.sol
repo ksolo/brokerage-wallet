@@ -31,8 +31,8 @@ contract BrokerageWallet is Ownable {
     uint256 queueEnd = 0;
     uint256 constant batchLimit = 10;
 
-    /** Contract administrator */
-    address public admin;
+    /** Platform administrator */
+    address public platformAdmin;
 
     /** balance registry */
     /** tokenAddress => investorAddress => ledger */
@@ -55,12 +55,20 @@ contract BrokerageWallet is Ownable {
     event LogTokenOfferCanceled(address indexed _token, address indexed _investor, uint _amount);
     event LogTokenOfferCleared(address indexed _token, address indexed _src, address indexed _dst, uint _amount);
 
+    /** platform admin logging */
+    event LogPlatformAdminChanged(address indexed _previousPlatformAdmin, address indexed _newPlatformAdmin);
+
     // ~~~~~~~~~~~~~~ //
     // Access control //
     // ~~~~~~~~~~~~~~ //
 
     modifier onlyApprover {
         require(msg.sender == approver, "This action is only for approvers");
+        _;
+    }
+
+    modifier onlyPlatformAdmin {
+        require(platformAdmin == msg.sender, "This action is only for platform admin");
         _;
     }
 
@@ -134,7 +142,7 @@ contract BrokerageWallet is Ownable {
     * @param _dst the buyer's address
     * @param _amount the desired amount of ERC20 to cancel offering
     */
-    function clearTokens(address _token, address _src, address _dst, uint256 _amount) public onlyOwner {
+    function clearTokens(address _token, address _src, address _dst, uint256 _amount) public onlyPlatformAdmin {
         InvestorLedger storage srcInvestorLedger = ledger[_token][_src];
         InvestorLedger storage dstInvestorLedger = ledger[_token][_dst];
 
@@ -246,6 +254,15 @@ contract BrokerageWallet is Ownable {
         approver = _approver;
     }
 
+    /**
+    * @dev set the platform admin
+    *
+    * @param _platformAdmin the platform admin's address
+    */
+    function setPlatformAdmin(address _platformAdmin) public onlyOwner {
+        emit LogPlatformAdminChanged(platformAdmin, _platformAdmin);
+        platformAdmin = _platformAdmin;
+    }
 }
 
 // Questions 

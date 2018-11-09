@@ -5,13 +5,16 @@ const ERC20Mock = artifacts.require('ERC20Mock');
 contract("BrokerageWallet", (accounts) => {
   beforeEach(async function() {
     this.owner = accounts[0];
-    this.investor = accounts[1];
+    this.platformAdmin = accounts[1];
+    this.investor = accounts[2];
 
     this.brokerageWalletContract = await BrokerageWalletContract.deployed();
     this.erc20Token = await ERC20Mock.new(this.owner, 1000);
     this.erc20TokenAddress = this.erc20Token.address;
 
     this.erc20Token.transfer(this.investor, 1000);
+
+    await this.brokerageWalletContract.setPlatformAdmin(this.platformAdmin);
   });
 
   describe("deposit(address _token, uint256 _amount)", ()=>{
@@ -145,7 +148,7 @@ contract("BrokerageWallet", (accounts) => {
     beforeEach(async function() {
       this.depositAmount = 100;
       this.transferAmount = this.depositAmount;
-      this.investor2 = accounts[2];
+      this.investor2 = accounts[3];
 
       await this.erc20Token.increaseAllowance(this.brokerageWalletContract.address, this.depositAmount, { from: this.investor });
       await this.brokerageWalletContract.deposit(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
@@ -159,7 +162,7 @@ contract("BrokerageWallet", (accounts) => {
         assert.equal(initialSrcInvestorLedger[1], this.transferAmount);
         assert.equal(initialDstInvestorLedger[0], 0);
 
-        await this.brokerageWalletContract.clearTokens(this.erc20TokenAddress, this.investor, this.investor2, this.transferAmount, { from: this.owner });
+        await this.brokerageWalletContract.clearTokens(this.erc20TokenAddress, this.investor, this.investor2, this.transferAmount, { from: this.platformAdmin });
 
         const srcInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
         const dstInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor2);
@@ -168,11 +171,30 @@ contract("BrokerageWallet", (accounts) => {
       });
 
       it("emits an even logging the clearing", async function() {
-        await this.brokerageWalletContract.clearTokens(this.erc20TokenAddress, this.investor, this.investor2, this.transferAmount, { from: this.owner }).then(async (result) => {
+        await this.brokerageWalletContract.clearTokens(this.erc20TokenAddress, this.investor, this.investor2, this.transferAmount, { from: this.platformAdmin }).then(async (result) => {
           truffleAssert.eventEmitted(result, 'LogTokenOfferCleared', (ev) => {
             return ev._token === this.erc20TokenAddress && ev._src === this.investor && ev._dst === this.investor2 && ev._amount.toNumber() === this.depositAmount;
           });
         });
+      });
+    });
+
+    context("called from non-platform-admin", async function() {
+      it("reverts and does not change token balances", async function() {
+        const initialSrcInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+        const initialDstInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor2);
+        assert.equal(initialSrcInvestorLedger[1], this.transferAmount);
+        assert.equal(initialDstInvestorLedger[0], 0);
+
+        await truffleAssert.reverts(
+          this.brokerageWalletContract.clearTokens(this.erc20TokenAddress, this.investor, this.investor2, this.transferAmount, { from: this.owner }),
+          "This action is only for platform admin",
+        );
+
+        const srcInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+        const dstInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor2);
+        assert.equal(initialSrcInvestorLedger[1] - srcInvestorLedger[1], 0);
+        assert.equal(dstInvestorLedger[0] - initialDstInvestorLedger[0], 0);
       });
     });
   });
