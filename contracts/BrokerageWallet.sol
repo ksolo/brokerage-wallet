@@ -71,10 +71,9 @@ contract BrokerageWallet is Ownable {
         uint balance = ledger[_token][msg.sender];
         ledger[_token][msg.sender] = balance.add(_amount);
 
-        ERC20 token = ERC20(_token);
-        token.transferFrom(msg.sender, address(this), _amount);
-
         emit LogDeposit(_token, msg.sender, _amount);
+
+        ERC20(_token).transferFrom(msg.sender, address(this), _amount);
     }
 
     // function offerTokens(address token, uint256 amount);
@@ -99,6 +98,43 @@ contract BrokerageWallet is Ownable {
     // ~~~~~~~~~~~~~~ //
     // Administration //
     // ~~~~~~~~~~~~~~ //
+
+    /**
+    * @dev mark a withdraw request as denied
+    */
+    function denyWithrawalRequest(uint256 _index) public onlyApprover {
+        processWithdrawalRequest(_index, WithdrawalStatus.Denied);
+    }
+
+    function approveWithdrawalRequest(uint256 _index) public onlyApprover {
+        processWithdrawalRequest(_index, WithdrawalStatus.Approved);
+    }
+
+    function processWithdrawalRequest(uint256 _index, WithdrawalStatus _status) 
+        internal 
+        onlyApprover 
+    {
+        require(
+            _index >= buffer.being && _index <= buffer.end, 
+            "Withdrawal must be in range of current buffer"
+        );
+
+        WithdrawalRequest storage request = withdrawalRequests[_index];
+        request.status = _status;
+    }
+
+    function flushBuffer() public onlyApprover {
+        for (uint256 i = buffer.begin; i <= buffer.end; i++) {
+            WithdrawalRequest storage request = withdrawalRequests[i];
+            if (request.status == WithdrawalStatus.Denied) continue;
+            request.status = WithdrawalStatus.Approved;
+        }
+
+        buffer.begin = buffer.end + 1;
+
+        uint256 endIndex = buffer.end + bufferLimit;
+        buffer.end = endIndex <= withdrawalRequests.length ? endIndex : withdrawalRequests.length - 1;
+    }
 
     /**
     * @dev Approves a list of withdrawal requests, if threshold is met, also transfers tokens
