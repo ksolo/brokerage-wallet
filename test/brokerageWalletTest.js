@@ -91,10 +91,8 @@ contract("BrokerageWallet", (accounts) => {
       });
 
       afterEach(async function() {
-        await this.brokerageWalletContract.cancelOffer(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
-
         // Cleanup the token offer
-        const investorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+        await this.brokerageWalletContract.cancelOffer(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
       });
 
       it("adds the amount of tokens to a user's offeredTokens ledger", async function() {
@@ -120,10 +118,13 @@ contract("BrokerageWallet", (accounts) => {
 
       await this.erc20Token.increaseAllowance(this.brokerageWalletContract.address, this.depositAmount, { from: this.investor });
       await this.brokerageWalletContract.deposit(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
-      await this.brokerageWalletContract.offerTokens(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
     });
 
     context("succesfully cancels token offer", async function() {
+      beforeEach(async function() {
+        await this.brokerageWalletContract.offerTokens(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
+      });
+
       it("removes the amount of tokens from a user's offeredTokens ledger", async function() {
         const initialInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
         assert.equal(initialInvestorLedger[1], this.depositAmount);
@@ -140,6 +141,21 @@ contract("BrokerageWallet", (accounts) => {
             return ev._token === this.erc20TokenAddress && ev._investor === this.investor && ev._amount.toNumber() === this.depositAmount;
           });
         });
+      });
+    });
+
+    context("the amount being canceled is greater than the amount offered by the investor", async function() {
+      it("reverts and does not change offered balance", async function() {
+        const initialInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+        assert.equal(initialInvestorLedger[1].toNumber(), 0);
+
+        await truffleAssert.reverts(
+          this.brokerageWalletContract.cancelOffer(this.erc20TokenAddress, this.depositAmount, { from: this.investor }),
+            "Amount requested to be canceled is more than offered"
+        );
+
+        const investorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+        assert.equal(initialInvestorLedger[1] - investorLedger[1], 0);
       });
     });
   });

@@ -127,7 +127,7 @@ contract BrokerageWallet is Ownable {
         InvestorLedger storage investorLedger = ledger[_token][msg.sender];
         require(
             investorLedger.offeredBalance >= _amount,
-            "Investor does not have sufficient balance of token"
+            "Amount requested to be canceled is more than offered"
         );
 
         investorLedger.offeredBalance = investorLedger.offeredBalance.sub(_amount);
