@@ -25,12 +25,12 @@ contract("BrokerageWallet", (accounts) => {
     it("credit the investors balance for the token", async function () {
       await this.brokerageWalletContract.deposit(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
 
-      const tokenUserBalance = await this.brokerageWalletContract.ledger(
+      const investorLedger = await this.brokerageWalletContract.ledger(
         this.erc20TokenAddress,
         this.investor
       );
 
-      assert.equal(tokenUserBalance.toNumber(), this.depositAmount);
+      assert.equal(investorLedger[0].toNumber(), this.depositAmount);
     });
 
     it("transfers tokens from the investor to the brokerage wallet", async function() {
@@ -76,6 +76,105 @@ contract("BrokerageWallet", (accounts) => {
       });
     });
 
+  });
+
+  describe("offerTokens(address _token, uint256 _amount)", () => {
+    context("succesfully offers tokens", async function() {
+      beforeEach(async function() {
+        this.depositAmount = 100;
+
+        await this.erc20Token.increaseAllowance(this.brokerageWalletContract.address, this.depositAmount, { from: this.investor });
+        await this.brokerageWalletContract.deposit(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
+      });
+
+      afterEach(async function() {
+        await this.brokerageWalletContract.cancelOffer(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
+
+        // Cleanup the token offer
+        const investorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+      });
+
+      it("adds the amount of tokens to a user's offeredTokens ledger", async function() {
+        await this.brokerageWalletContract.offerTokens(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
+
+        const investorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+        assert.equal(investorLedger[1].toNumber(), this.depositAmount);
+      });
+
+      it("emits an even logging the offer details", async function() {
+        await this.brokerageWalletContract.offerTokens(this.erc20TokenAddress, this.depositAmount, { from: this.investor }).then(async (result) => {
+          truffleAssert.eventEmitted(result, 'LogTokensOffered', (ev) => {
+            return ev._token === this.erc20TokenAddress && ev._investor === this.investor && ev._amount.toNumber() === this.depositAmount;
+          });
+        });
+      });
+    });
+  });
+
+  describe("cancelOffer(address _token, uint256 _amount)", () => {
+    beforeEach(async function() {
+      this.depositAmount = 100;
+
+      await this.erc20Token.increaseAllowance(this.brokerageWalletContract.address, this.depositAmount, { from: this.investor });
+      await this.brokerageWalletContract.deposit(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
+      await this.brokerageWalletContract.offerTokens(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
+    });
+
+    context("succesfully cancels token offer", async function() {
+      it("removes the amount of tokens from a user's offeredTokens ledger", async function() {
+        const initialInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+        assert.equal(initialInvestorLedger[1], this.depositAmount);
+
+        await this.brokerageWalletContract.cancelOffer(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
+
+        const investorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+        assert.equal(investorLedger[1].toNumber(), 0);
+      });
+
+      it("emits an even logging the cancelation", async function() {
+        await this.brokerageWalletContract.cancelOffer(this.erc20TokenAddress, this.depositAmount, { from: this.investor }).then(async (result) => {
+          truffleAssert.eventEmitted(result, 'LogTokenOfferCanceled', (ev) => {
+            return ev._token === this.erc20TokenAddress && ev._investor === this.investor && ev._amount.toNumber() === this.depositAmount;
+          });
+        });
+      });
+    });
+  });
+
+  describe("clearTokens(address _token, address _src, address _dst, uint256 _amount)", () => {
+    beforeEach(async function() {
+      this.depositAmount = 100;
+      this.transferAmount = this.depositAmount;
+      this.investor2 = accounts[2];
+
+      await this.erc20Token.increaseAllowance(this.brokerageWalletContract.address, this.depositAmount, { from: this.investor });
+      await this.brokerageWalletContract.deposit(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
+      await this.brokerageWalletContract.offerTokens(this.erc20TokenAddress, this.depositAmount, { from: this.investor });
+    });
+
+    context("succesfully clears token offer", async function() {
+      it("debits the seller and credits the buyer", async function() {
+        const initialSrcInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+        const initialDstInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor2);
+        assert.equal(initialSrcInvestorLedger[1], this.transferAmount);
+        assert.equal(initialDstInvestorLedger[0], 0);
+
+        await this.brokerageWalletContract.clearTokens(this.erc20TokenAddress, this.investor, this.investor2, this.transferAmount, { from: this.owner });
+
+        const srcInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
+        const dstInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor2);
+        assert.equal(initialSrcInvestorLedger[1] - srcInvestorLedger[1], this.transferAmount);
+        assert.equal(dstInvestorLedger[0] - initialDstInvestorLedger[0], this.transferAmount);
+      });
+
+      it("emits an even logging the clearing", async function() {
+        await this.brokerageWalletContract.clearTokens(this.erc20TokenAddress, this.investor, this.investor2, this.transferAmount, { from: this.owner }).then(async (result) => {
+          truffleAssert.eventEmitted(result, 'LogTokenOfferCleared', (ev) => {
+            return ev._token === this.erc20TokenAddress && ev._src === this.investor && ev._dst === this.investor2 && ev._amount.toNumber() === this.depositAmount;
+          });
+        });
+      });
+    });
   });
 
   describe("transferOwnership(address newOwner)", () => {

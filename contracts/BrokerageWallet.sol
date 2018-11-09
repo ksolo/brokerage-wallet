@@ -35,11 +35,13 @@ contract BrokerageWallet is Ownable {
     address public admin;
 
     /** balance registry */
-    /** tokenAddress => investorAddress => balance */
-    mapping(address => mapping(address => uint256)) public ledger;
-
-    /** tokenAddress => investorAddress => balance */
-    mapping(address => mapping(address => uint256)) public fundsAvailableToWithdraw;
+    /** tokenAddress => investorAddress => ledger */
+    struct InvestorLedger {
+        uint256 balance;
+        uint256 offeredBalance;
+        uint256 availableWithdrawBalance;
+    }
+    mapping(address => mapping(address => InvestorLedger)) public ledger;
 
     /** Approver has ability to approve withdraw requests */
     address public approver;
@@ -47,6 +49,11 @@ contract BrokerageWallet is Ownable {
 
     /** logging deposit or their failure */
     event LogDeposit(address indexed _token, address indexed _investor, uint _amount);
+
+    /** trading logging */
+    event LogTokensOffered(address indexed _token, address indexed _investor, uint _amount);
+    event LogTokenOfferCanceled(address indexed _token, address indexed _investor, uint _amount);
+    event LogTokenOfferCleared(address indexed _token, address indexed _src, address indexed _dst, uint _amount);
 
     // ~~~~~~~~~~~~~~ //
     // Access control //
@@ -68,8 +75,8 @@ contract BrokerageWallet is Ownable {
     * @param _amount the amount of ERC20 to deposit
     */
     function deposit(address _token, uint256 _amount) public {
-        uint balance = ledger[_token][msg.sender];
-        ledger[_token][msg.sender] = balance.add(_amount);
+        InvestorLedger storage investorLedger = ledger[_token][msg.sender];
+        investorLedger.balance = investorLedger.balance.add(_amount);
 
         emit LogDeposit(_token, msg.sender, _amount);
 
@@ -78,15 +85,69 @@ contract BrokerageWallet is Ownable {
 
     function withdraw(address _token, uint256 _amount) public {
         require(
-            fundsAvailableToWithdraw[_token][msg.sender] >= _amount,
+            ledger[_token][msg.sender].availableWithdrawBalance >= _amount,
             "Insufficient funds"
         );
 
         ERC20(_token).transfer(msg.sender, _amount);
     }
 
-    // function offerTokens(address token, uint256 amount);
-    // function transfer(address token, address src, address dst, uint256 amount) onlyOwner;
+    /**
+    * @dev Offers tokens to be traded by an investor
+    *
+    * @param _token the ERC20 token address
+    * @param _amount the desired amount of ERC20 to offer for trade
+    */
+    function offerTokens(address _token, uint256 _amount) public {
+        InvestorLedger storage investorLedger = ledger[_token][msg.sender];
+        require(
+            (investorLedger.balance - investorLedger.offeredBalance) >= _amount,
+            "Investor does not have sufficient balance of token"
+        );
+
+        investorLedger.offeredBalance = investorLedger.offeredBalance.add(_amount);
+        emit LogTokensOffered(_token, msg.sender, _amount);
+    }
+
+    /**
+    * @dev Cancels an amount of tokens offered for trade by an investor
+    *
+    * @param _token the ERC20 token address
+    * @param _amount the desired amount of ERC20 to cancel offering
+    */
+    function cancelOffer(address _token, uint256 _amount) public {
+        InvestorLedger storage investorLedger = ledger[_token][msg.sender];
+        require(
+            investorLedger.offeredBalance >= _amount,
+            "Investor does not have sufficient balance of token"
+        );
+
+        investorLedger.offeredBalance = investorLedger.offeredBalance.sub(_amount);
+        emit LogTokenOfferCanceled(_token, msg.sender, _amount);
+    }
+
+    /**
+    * @dev Clears a trade by the platform for two investors
+    *
+    * @param _token the ERC20 token address
+    * @param _src the seller's address
+    * @param _dst the buyer's address
+    * @param _amount the desired amount of ERC20 to cancel offering
+    */
+    function clearTokens(address _token, address _src, address _dst, uint256 _amount) public onlyOwner {
+        InvestorLedger storage srcInvestorLedger = ledger[_token][_src];
+        InvestorLedger storage dstInvestorLedger = ledger[_token][_dst];
+
+        require(
+            srcInvestorLedger.offeredBalance >= _amount,
+            "Investor does not have sufficient balance of token"
+        );
+
+        srcInvestorLedger.offeredBalance = srcInvestorLedger.offeredBalance.sub(_amount);
+        dstInvestorLedger.balance = dstInvestorLedger.balance.add(_amount);
+
+        emit LogTokenOfferCleared(_token, _src, _dst, _amount);
+    }
 
     /**
     * @dev Requests a withdrawal of a certain amount of an ERC20 token for a particular investor
@@ -167,11 +228,11 @@ contract BrokerageWallet is Ownable {
             // currently it would kill the whole batch
 
             // remove funds from ledger balance
-            uint256 ledgerCurrentBalance = ledger[token][investor];
-            ledger[token][investor] = ledgerCurrentBalance.sub(amount);
+            uint256 ledgerCurrentBalance = ledger[token][investor].balance;
+            ledger[token][investor].balance = ledgerCurrentBalance.sub(amount);
             // add funds to available balance
-            uint256 availableFunds = fundsAvailableToWithdraw[token][investor];
-            fundsAvailableToWithdraw[token][investor] = availableFunds.add(amount);
+            uint256 availableFunds = ledger[token][investor].availableWithdrawBalance;
+            ledger[token][investor].availableWithdrawBalance = availableFunds.add(amount);
         }
     }
 
