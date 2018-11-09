@@ -9,43 +9,51 @@ import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
 contract BrokerageWallet is Ownable {
     using SafeMath for uint;
 
-    uint8 constant public APPROVAL_THRESHOLD = 3;
+    /**
+    * @dev Withdrawal Requests are processed by an approver, the initial state is
+    * pending, and will eventually resolve to approved or denied
+    */
+    enum WithdrawalStatus { Pending, Approved, Denied }
 
     struct WithdrawalRequest {
         address investor;
         address token;
         uint256 amount;
-        bool approved;
-        uint256 approvalCountIndex;
+        WithdrawalStatus status;
     }
+
+    /** Queue of requests to process */
+    WithdrawalRequest[] public withdrawalRequests;
+
+    /** Tracking what part of the queue is ready for processing */
+    struct WithdrawalRequestBuffer {
+        uint256 begin;
+        uint256 end;
+    }
+
+    /** initialize tracking */
+    WithdrawalRequestBuffer private buffer = WithdrawalRequestBuffer({begin: 0, end: 0});
+    uint256 constant bufferLimit = 10;
 
     /** Contract administrator */
     address public admin;
-
-    /** The active signers */
-    mapping(address => bool) public approvers;
-    address[] public approverAddresses;
 
     /** balance registry */
     /** tokenAddress => investorAddress => balance */
     mapping(address => mapping(address => uint256)) public ledger;
 
-    /** approverAddress => withdrawalRequests */
-    mapping(address => WithdrawalRequest[]) public approverRequests;
-    uint[] public requestApprovalCounts;
-    event LogApproverAdded(address indexed _approver);
-    event LogApproverRemoved(address indexed _approver);
+    /** Approver has ability to approve withdraw requests */
+    address public approver;
 
     /** logging deposit or their failure */
     event LogDeposit(address indexed _token, address indexed _investor, uint _amount);
-    event LogDepositFail(address indexed _token, address indexed _investor, uint _amount);
 
     // ~~~~~~~~~~~~~~ //
     // Access control //
     // ~~~~~~~~~~~~~~ //
 
     modifier onlyApprover {
-        require(approvers[msg.sender], "This action is only for approvers");
+        require(msg.sender == approver, "This action is only for approvers");
         _;
     }
 
