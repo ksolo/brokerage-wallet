@@ -38,6 +38,9 @@ contract BrokerageWallet is Ownable {
     /** tokenAddress => investorAddress => balance */
     mapping(address => mapping(address => uint256)) public ledger;
 
+    /** tokenAddress => investorAddress => balance */
+    mapping(address => mapping(address => uint256)) public fundsAvailableToWithdraw;
+
     /** Approver has ability to approve withdraw requests */
     address public approver;
     event LogApproverChanged(address _from, address _to);
@@ -71,6 +74,15 @@ contract BrokerageWallet is Ownable {
         emit LogDeposit(_token, msg.sender, _amount);
 
         ERC20(_token).transferFrom(msg.sender, address(this), _amount);
+    }
+
+    function withdraw(address _token, uint256 _amount) public {
+        require(
+            fundsAvailableToWithdraw[_token][msg.sender] >= _amount,
+            "Insufficient funds"
+        );
+
+        ERC20(_token).transfer(msg.sender, _amount);
     }
 
     // function offerTokens(address token, uint256 amount);
@@ -111,19 +123,8 @@ contract BrokerageWallet is Ownable {
             "Withdrawal must be in range of current buffer"
         );
 
-        processWithdrawalRequest(_index, WithdrawalStatus.Denied);
-    }
-
-    function approveWithdrawalRequest(uint256 _index) public onlyApprover {
-        processWithdrawalRequest(_index, WithdrawalStatus.Approved);
-    }
-
-    function processWithdrawalRequest(uint256 _index, WithdrawalStatus _status) 
-        internal 
-        onlyApprover 
-    {
         WithdrawalRequest storage request = withdrawalRequests[_index];
-        request.status = _status;
+        request.status = WithdrawalStatus.Denied;
     }
 
     /**
@@ -132,6 +133,7 @@ contract BrokerageWallet is Ownable {
     * denied using the `denyWithdrawalRequest` function
     */
     function approveBatch() public onlyApprover {
+        processCurrentBatch(queueBegin, queueEnd);
         // Advance queue begin to start of next range
         queueBegin = queueEnd;
         // Advance queue end
@@ -141,6 +143,29 @@ contract BrokerageWallet is Ownable {
         } else {
             // End would exceed the length of the withdrawalRequests array
             queueEnd = length;
+        }
+    }
+
+    function processCurrentBatch(uint256 _begin, uint256 _end) private onlyApprover {
+        for (uint256 i = _begin; i < _end; i++) {
+            WithdrawalRequest storage request = withdrawalRequests[i];
+            if (request.status == WithdrawalStatus.Denied) continue;
+
+            // easier references
+            address token = request.token;
+            address investor = request.investor;
+            uint256 amount = request.amount;
+
+            /** TODO: discuss what if this fails? (insufficient funds?) 
+            *   currently it would kill the whole batch
+            */
+
+            // remove funds from ledger balance
+            uint256 ledgerCurrentBalance = ledger[token][investor];
+            ledger[token][investor] = ledgerCurrentBalance.sub(amount);
+            // add funds to available balance
+            uint256 availableFunds = fundsAvailableToWithdraw[token][investor];
+            fundsAvailableToWithdraw[token][investor] = availableFunds.add(amount);
         }
     }
 
