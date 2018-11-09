@@ -9,11 +9,7 @@ import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
 contract BrokerageWallet is Ownable {
     using SafeMath for uint;
 
-    /**
-    * @dev Withdrawal Requests are processed by an approver, the initial state is
-    * pending, and will eventually resolve to approved or denied
-    */
-    enum WithdrawalStatus { Pending, Approved, Denied }
+    enum WithdrawalStatus { Approved, Denied }
 
     struct WithdrawalRequest {
         address investor;
@@ -25,15 +21,15 @@ contract BrokerageWallet is Ownable {
     /** Queue of requests to process */
     WithdrawalRequest[] public withdrawalRequests;
 
-    /** Tracking what part of the queue is ready for processing */
-    struct WithdrawalRequestBuffer {
-        uint256 begin;
-        uint256 end;
-    }
+    event LogWithdrawalRequestCreated(
+        address indexed _investor,
+        address indexed _token
+    );
 
-    /** initialize tracking */
-    WithdrawalRequestBuffer private buffer = WithdrawalRequestBuffer({begin: 0, end: 0});
-    uint256 constant bufferLimit = 10;
+    /** Tracking what part of the queue is ready for processing */
+    uint256 queueBegin = 0;
+    uint256 queueEnd = 0;
+    uint256 constant batchLimit = 10;
 
     /** Contract administrator */
     address public admin;
@@ -44,6 +40,7 @@ contract BrokerageWallet is Ownable {
 
     /** Approver has ability to approve withdraw requests */
     address public approver;
+    event LogApproverChanged(address _from, address _to);
 
     /** logging deposit or their failure */
     event LogDeposit(address indexed _token, address indexed _investor, uint _amount);
@@ -86,13 +83,19 @@ contract BrokerageWallet is Ownable {
     * @param _amount the desired amount of ERC20 to withdraw
     */
     function requestWithdrawal(address _token, uint256 _amount) public {
-        uint256 approvalCountIndex = requestApprovalCounts.push(0) - 1;
+        WithdrawalRequest memory request = WithdrawalRequest({
+            investor: msg.sender,
+            token: _token,
+            amount: _amount,
+            status: WithdrawalStatus.Approved
+        });
+        withdrawalRequests.push(request);
 
-        for (uint i = 0; i < approverAddresses.length; i++) {
-            address approverAddress = approverAddresses[i];
-            WithdrawalRequest memory request = WithdrawalRequest(msg.sender, _token, _amount, false, approvalCountIndex);
-            approverRequests[approverAddress].push(request);
-        }
+        emit LogWithdrawalRequestCreated(msg.sender, _token);
+
+        // The processing queue was empty, adding a new request will make a
+        // queue of 1 item
+        if (queueBegin == queueEnd) queueEnd++;
     }
 
     // ~~~~~~~~~~~~~~ //
@@ -103,6 +106,11 @@ contract BrokerageWallet is Ownable {
     * @dev mark a withdraw request as denied
     */
     function denyWithrawalRequest(uint256 _index) public onlyApprover {
+        require(
+            _index >= buffer.being && _index <= buffer.end, 
+            "Withdrawal must be in range of current buffer"
+        );
+
         processWithdrawalRequest(_index, WithdrawalStatus.Denied);
     }
 
@@ -114,89 +122,38 @@ contract BrokerageWallet is Ownable {
         internal 
         onlyApprover 
     {
-        require(
-            _index >= buffer.being && _index <= buffer.end, 
-            "Withdrawal must be in range of current buffer"
-        );
-
         WithdrawalRequest storage request = withdrawalRequests[_index];
         request.status = _status;
     }
 
-    function flushBuffer() public onlyApprover {
-        for (uint256 i = buffer.begin; i <= buffer.end; i++) {
-            WithdrawalRequest storage request = withdrawalRequests[i];
-            if (request.status == WithdrawalStatus.Denied) continue;
-            request.status = WithdrawalStatus.Approved;
-        }
-
-        buffer.begin = buffer.end + 1;
-
-        uint256 endIndex = buffer.end + bufferLimit;
-        buffer.end = endIndex <= withdrawalRequests.length ? endIndex : withdrawalRequests.length - 1;
-    }
-
     /**
-    * @dev Approves a list of withdrawal requests, if threshold is met, also transfers tokens
-    *
-    * @param _begin the starting index of requests to approve
-    * @param _end the ending index of requests to approve
+    * @dev approveBatch advances the queue to the next range of items
+    * all requests are considered approved unless they have been explicitly
+    * denied using the `denyWithdrawalRequest` function
     */
-    function approveWithdrawals(uint256 _begin, uint256 _end) public onlyApprover {
-        for (uint i = _begin; i < _end; i++) {
-            approveWithdraw(i);
+    function approveBatch() public onlyApprover {
+        // Advance queue begin to start of next range
+        queueBegin = queueEnd;
+        // Advance queue end
+        uint256 length = withdrawalRequests.length;
+        if (queueEnd + batchLimit <= length) {
+            queueEnd += batchLimit;
+        } else {
+            // End would exceed the length of the withdrawalRequests array
+            queueEnd = length;
         }
     }
 
-    function approveWithdraw(uint256 _index) public onlyApprover {
-        WithdrawalRequest storage request = approverRequests[msg.sender][_index];
-        // TODO: skip if already approved by this approver
-        requestApprovalCounts[request.approvalCountIndex] += 1;
-        request.approved = true;
-
-        if (requestApprovalCounts[request.approvalCountIndex] > APPROVAL_THRESHOLD) {
-            // TODO: Transfer tokens to investor
-            // TODO: Remove entry from requestApprovalCounts
-        }
-    }
     /**
-    * @dev add approver address to the list
+    * @dev set the approver
     *
     * @param _approver the approvers address
     */
-    function addApprover(address _approver) public onlyOwner {
-        if (approvers[_approver]) return;
-
-        uint currentLength = approverAddresses.length;
-        approverAddresses.length = currentLength + 1;
-        
-        approverAddresses[currentLength] = _approver;
-        approvers[_approver] = true;
-
-        emit LogApproverAdded(_approver);
+    function setApprover(address _approver) public onlyOwner {
+        emit LogApproverChanged(approver, _approver);
+        approver = _approver;
     }
 
-    /**
-    * @dev remove approver address from the list
-    *
-    * @param _approver the approver address to remove
-    */
-    function removeApprover(address _approver) public onlyOwner {
-        if (!approvers[_approver]) return; 
-
-        for (uint256 i = 0; i < approverAddresses.length; i++) {
-            if (approverAddresses[i] == _approver) {
-                uint256 newLength = approverAddresses.length - 1;
-                approverAddresses[i] = approverAddresses[newLength];
-                approvers[_approver] = false;
-            
-                approverAddresses.length = newLength;
-
-                emit LogApproverRemoved(_approver);
-                break;
-            }
-        }
-    }
 }
 
 // Questions 
