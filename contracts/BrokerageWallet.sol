@@ -119,7 +119,7 @@ contract BrokerageWallet is Ownable {
     */
     function denyWithrawalRequest(uint256 _index) public onlyApprover {
         require(
-            _index >= buffer.being && _index <= buffer.end, 
+            _index >= queueBegin && _index <= queueEnd,
             "Withdrawal must be in range of current buffer"
         );
 
@@ -150,7 +150,7 @@ contract BrokerageWallet is Ownable {
     * @dev For approved requests, moves tokens from the ledger balance to
     * a funds available balance for faster withdraw
     *
-    * @param _being where to begin processing queue
+    * @param _begin where to begin processing queue
     * @param _end where to stop processing (exclusive)
     */
     function processCurrentBatch(uint256 _begin, uint256 _end) private onlyApprover {
