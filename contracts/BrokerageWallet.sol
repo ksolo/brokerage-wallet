@@ -146,6 +146,13 @@ contract BrokerageWallet is Ownable {
         }
     }
 
+    /**
+    * @dev For approved requests, moves tokens from the ledger balance to
+    * a funds available balance for faster withdraw
+    *
+    * @param _being where to begin processing queue
+    * @param _end where to stop processing (exclusive)
+    */
     function processCurrentBatch(uint256 _begin, uint256 _end) private onlyApprover {
         for (uint256 i = _begin; i < _end; i++) {
             WithdrawalRequest storage request = withdrawalRequests[i];
@@ -156,9 +163,8 @@ contract BrokerageWallet is Ownable {
             address investor = request.investor;
             uint256 amount = request.amount;
 
-            /** TODO: discuss what if this fails? (insufficient funds?) 
-            *   currently it would kill the whole batch
-            */
+            // TODO: discuss what if this fails? (insufficient funds?) 
+            // currently it would kill the whole batch
 
             // remove funds from ledger balance
             uint256 ledgerCurrentBalance = ledger[token][investor];
