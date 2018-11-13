@@ -117,9 +117,8 @@ contract("BrokerageWallet", (accounts) => {
         assert.equal(initialInvestorLedger[0].toNumber(), 0);
         assert.equal(initialInvestorLedger[1].toNumber(), 0);
 
-        await truffleAssert.reverts(
+        await truffleAssert.fails(
           this.brokerageWalletContract.offerTokens(this.erc20TokenAddress, 100, { from: this.investor }),
-          "Investor does not have sufficient balance of token"
         );
 
         const investorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
@@ -142,9 +141,8 @@ contract("BrokerageWallet", (accounts) => {
         assert.equal(initialInvestorLedger[0].toNumber(), this.depositAmount);
         assert.equal(initialInvestorLedger[1].toNumber(), this.offeredAmount);
 
-        await truffleAssert.reverts(
+        await truffleAssert.fails(
           this.brokerageWalletContract.offerTokens(this.erc20TokenAddress, 100, { from: this.investor }),
-          "Investor does not have sufficient balance of token"
         );
 
         const investorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
@@ -190,9 +188,8 @@ contract("BrokerageWallet", (accounts) => {
         const initialInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
         assert.equal(initialInvestorLedger[1].toNumber(), 0);
 
-        await truffleAssert.reverts(
+        await truffleAssert.fails(
           this.brokerageWalletContract.cancelOffer(this.erc20TokenAddress, this.depositAmount, { from: this.investor }),
-            "Amount requested to be canceled is more than offered"
         );
 
         const investorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
@@ -250,9 +247,8 @@ contract("BrokerageWallet", (accounts) => {
         assert.equal(initialSrcInvestorLedger[1], this.transferAmount);
         assert.equal(initialDstInvestorLedger[0], 0);
 
-        await truffleAssert.reverts(
+        await truffleAssert.fails(
           this.brokerageWalletContract.clearTokens(this.erc20TokenAddress, this.investor, this.investor2, this.transferAmount, { from: this.owner }),
-          "This action is only for platform admin",
         );
 
         const srcInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
@@ -269,9 +265,8 @@ contract("BrokerageWallet", (accounts) => {
         assert.equal(initialSrcInvestorLedger[1], 0);
         assert.equal(initialDstInvestorLedger[0], 0);
 
-        await truffleAssert.reverts(
+        await truffleAssert.fails(
           this.brokerageWalletContract.clearTokens(this.erc20TokenAddress, this.investor, this.investor2, this.transferAmount, { from: this.platformAdmin }),
-          "Investor does not have sufficient balance of token"
         );
 
         const srcInvestorLedger = await this.brokerageWalletContract.ledger(this.erc20TokenAddress, this.investor);
