@@ -7,6 +7,7 @@ contract("BrokerageWallet", (accounts) => {
     this.owner = accounts[0];
     this.platformAdmin = accounts[1];
     this.investor = accounts[2];
+    this.approver = accounts[3]
 
     this.brokerageWalletContract = await BrokerageWalletContract.deployed();
     this.erc20Token = await ERC20Mock.new(this.owner, 1000);
@@ -15,6 +16,7 @@ contract("BrokerageWallet", (accounts) => {
     this.erc20Token.transfer(this.investor, 1000);
 
     await this.brokerageWalletContract.setPlatformAdmin(this.platformAdmin);
+    await this.brokerageWalletContract.setApprover(this.approver);
   });
 
   describe("deposit(address _token, uint256 _amount)", ()=>{
@@ -311,4 +313,47 @@ contract("BrokerageWallet", (accounts) => {
       });
     });
   })
+
+  describe("withdraw(address _token, uint256 _amount)", function() {});
+  
+  describe("setApprover(address _approver)", function() {
+    context("owner", function(){
+      beforeEach(async function(){
+        this.newApproverAddress = accounts[9];
+        this.transaction = await this.brokerageWalletContract.setApprover(this.newApproverAddress);
+      });
+      this.afterEach(async function() {
+        this.brokerageWalletContract.setApprover(this.approver);
+      });
+
+      it("updates the address of the approver", async function() {
+        assert.equal(
+          await this.brokerageWalletContract.approver(), 
+          this.newApproverAddress,
+          "approver address was updated"
+        );
+      });
+      it("emits LogApproverChanged event", async function() {
+        truffleAssert.eventEmitted(this.transaction, "LogApproverChanged", (event) => {
+          return event._from === this.approver && event._to === this.newApproverAddress;
+        });
+      });
+    });
+    context("non-owner", function(){
+      it("does not change the approver address", async function() {
+        truffleAssert.fails(
+          this.brokerageWalletContract.setApprover(accounts[9], { from: accounts[9] })
+        );
+        assert.equal(
+          await this.brokerageWalletContract.approver(),
+          this.approver,
+          "approver was not changed"
+        );
+      });
+    });
+  });
+
+  describe("denyWithdrawalRequest(uint256 _index)", function() {});
+
+  describe("approveBatch()", function() {});
 });
